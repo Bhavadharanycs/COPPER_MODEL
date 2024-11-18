@@ -37,9 +37,18 @@ else:
 if 'INDEX' in df.columns:
     df.drop(columns=['INDEX'], inplace=True)
 
-# Handle missing values
-imputer = SimpleImputer(strategy='most_frequent')
-df.iloc[:, :] = imputer.fit_transform(df)
+# Handle missing values separately for numeric and categorical columns
+numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
+
+numeric_imputer = SimpleImputer(strategy='mean')
+categorical_imputer = SimpleImputer(strategy='most_frequent')
+
+if numeric_cols:
+    df[numeric_cols] = numeric_imputer.fit_transform(df[numeric_cols])
+
+if categorical_cols:
+    df[categorical_cols] = categorical_imputer.fit_transform(df[categorical_cols])
 
 # Detect and treat skewness
 numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
