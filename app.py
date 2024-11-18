@@ -85,10 +85,10 @@ for col in categorical_cols:
 
 # Feature-target splitting
 if task == "Regression (Selling Price)":
-    if "Selling_Price" not in df.columns:
-        st.error("'Selling_Price' column is missing in the dataset!")
+    if "selling_Price" not in df.columns:
+        st.error("'selling_Price' column is missing in the dataset!")
         st.stop()
-    target = "Selling_Price"
+    target = "selling_Price"
 elif task == "Classification (Lead Status)":
     if "Status" not in df.columns:
         st.error("'Status' column is missing in the dataset!")
