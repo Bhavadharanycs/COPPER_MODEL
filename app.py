@@ -129,28 +129,38 @@ if uploaded_file:
 
         st.success("Classification model trained and saved!")
 
-    # Prediction
+    # Ensure X is defined before prediction
+if 'X' in locals() and not X.empty:
     st.header("Make Predictions")
     user_input = {}
+
+    # Iterate through feature columns
     for col in X.columns:
         user_input[col] = st.text_input(f"Enter {col}", "")
 
     if st.button("Predict"):
         # Prepare Input for Prediction
-        input_df = pd.DataFrame([user_input])
-        input_df = input_df.astype(X.dtypes)
+        try:
+            input_df = pd.DataFrame([user_input])
+            input_df = input_df.astype(X.dtypes)
 
-        # Load Model
-        model_file = 'regression_model.pkl' if task == "Regression" else 'classification_model.pkl'
-        with open(model_file, 'rb') as f:
-            loaded_model = pickle.load(f)
+            # Load Model
+            model_file = 'regression_model.pkl' if task == "Regression" else 'classification_model.pkl'
+            with open(model_file, 'rb') as f:
+                loaded_model = pickle.load(f)
 
-        # Predict
-        prediction = loaded_model.predict(input_df)
+            # Predict
+            prediction = loaded_model.predict(input_df)
 
-        # Show Results
-        if task == "Regression":
-            st.success(f"Predicted Selling Price: ${np.expm1(prediction[0]):.2f}")
-        else:
-            status = "WON" if prediction[0] == 1 else "LOST"
-            st.success(f"Predicted Status: {status}")
+            # Show Results
+            if task == "Regression":
+                st.success(f"Predicted Selling Price: ${np.expm1(prediction[0]):.2f}")
+            else:
+                status = "WON" if prediction[0] == 1 else "LOST"
+                st.success(f"Predicted Status: {status}")
+        except Exception as e:
+            st.error(f"Prediction failed: {e}")
+else:
+    st.warning("Dataset must be loaded and processed before making predictions.")
+
+ 
