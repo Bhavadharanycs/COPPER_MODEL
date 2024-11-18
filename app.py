@@ -37,10 +37,19 @@ else:
 if 'INDEX' in df.columns:
     df.drop(columns=['INDEX'], inplace=True)
 
-# Handle missing values separately for numeric and categorical columns
+# Ensure proper data types for numeric and categorical columns
 numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
 categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
 
+# Convert numeric columns to floats (if possible)
+for col in numeric_cols:
+    df[col] = pd.to_numeric(df[col], errors='coerce')
+
+# Convert categorical columns to strings
+for col in categorical_cols:
+    df[col] = df[col].astype(str)
+
+# Handle missing values separately for numeric and categorical columns
 numeric_imputer = SimpleImputer(strategy='mean')
 categorical_imputer = SimpleImputer(strategy='most_frequent')
 
