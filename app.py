@@ -15,7 +15,7 @@ import pickle
 # Load dataset
 @st.cache
 def load_data():
-    data_path = '/mnt/data/Copper_Set 1.csv'  # Update based on deployment
+    data_path = 'Copper_Set 1.csv'  # Update based on deployment
     return pd.read_csv(data_path)
 
 df = load_data()
