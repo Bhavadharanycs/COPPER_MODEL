@@ -1,158 +1,156 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import mean_squared_error, accuracy_score, classification_report
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 import pickle
 
-# Load dataset
-@st.cache
-def load_data():
-    data_path = 'Copper_Set 1.csv'  # Update based on deployment
-    return pd.read_csv(data_path)
+# Title
+st.title("Copper Industry ML Model")
 
-# Initialize the app
-st.title("Copper Industry ML Tool")
-st.sidebar.title("Options")
-task = st.sidebar.selectbox("Select Task", ["Regression (Selling Price)", "Classification (Lead Status)"])
+# File Upload
+uploaded_file = st.file_uploader("Upload Copper Dataset (CSV)", type="csv")
 
-# Load data
-df = load_data()
-st.write("Dataset Loaded Successfully!")
-st.write(df.head())
+if uploaded_file:
+    # Load Dataset
+    df = pd.read_csv(uploaded_file)
+    st.write("Dataset Preview:")
+    st.write(df.head())
 
-# Data Cleaning and Preprocessing
-st.subheader("Data Preprocessing")
+    # Initial Cleaning
+    if 'Material_Reference' in df.columns:
+        df['Material_Reference'] = df['Material_Reference'].replace('00000', np.nan)
 
-# Check for Material_Reference column
-if 'Material_Reference' in df.columns:
-    df['Material_Reference'] = df['Material_Reference'].replace('00000', np.nan)
-else:
-    st.warning("'Material_Reference' column not found. Skipping related preprocessing.")
+    # Identify Column Types
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    categorical_cols = df.select_dtypes(include=[object]).columns.tolist()
 
-# Drop 'INDEX' column if it exists
-if 'INDEX' in df.columns:
-    df.drop(columns=['INDEX'], inplace=True)
-
-# Ensure proper data types for numeric and categorical columns
-numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
-
-# Convert numeric columns to floats (if possible)
-for col in numeric_cols:
-    df[col] = pd.to_numeric(df[col], errors='coerce')
-
-# Convert categorical columns to strings
-for col in categorical_cols:
-    df[col] = df[col].astype(str)
-
-# Handle missing values separately for numeric and categorical columns
-numeric_imputer = SimpleImputer(strategy='mean')
-categorical_imputer = SimpleImputer(strategy='most_frequent')
-
-if numeric_cols:
-    df[numeric_cols] = numeric_imputer.fit_transform(df[numeric_cols])
-
-if categorical_cols:
-    df[categorical_cols] = categorical_imputer.fit_transform(df[categorical_cols])
-
-# Detect and treat skewness
-numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-for col in numeric_cols:
-    if df[col].skew() > 1:
-        df[col] = np.log1p(df[col])
-
-# Outlier treatment
-def handle_outliers(data, cols):
-    for col in cols:
-        Q1 = data[col].quantile(0.25)
-        Q3 = data[col].quantile(0.75)
-        IQR = Q3 - Q1
-        lower_bound = Q1 - 1.5 * IQR
-        upper_bound = Q3 + 1.5 * IQR
-        data[col] = np.clip(data[col], lower_bound, upper_bound)
-
-handle_outliers(df, numeric_cols)
-
-# Encode categorical variables
-categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
-encoder = LabelEncoder()
-for col in categorical_cols:
-    df[col] = encoder.fit_transform(df[col])
-
-# Feature-target splitting
-if task == "Regression (Selling Price)":
-    if "selling_price" not in df.columns:
-        st.error("'selling_price' column is missing in the dataset!")
+    if 'selling_price' in df.columns:
+        target_variable = 'selling_price'
+    elif 'Status' in df.columns:
+        target_variable = 'Status'
+    else:
+        st.error("The dataset must contain either 'Selling_Price' or 'Status' for regression or classification.")
         st.stop()
-    target = "selling_price"
-elif task == "Classification (Lead Status)":
-    if "Status" not in df.columns:
-        st.error("'Status' column is missing in the dataset!")
-        st.stop()
-    target = "Status"
-    df = df[df[target].isin(['WON', 'LOST'])]  # Filter relevant statuses
 
-X = df.drop(columns=[target])
-y = df[target]
+    # Select Task
+    task = st.radio("Choose a task", ("Regression", "Classification"))
 
-# Model Training
-st.subheader("Model Training")
+    # Preprocess Data
+    if task == "Regression" and target_variable == 'Selling_Price':
+        # Drop rows with missing target
+        df = df.dropna(subset=[target_variable])
 
-if task == "Regression (Selling Price)":
-    y = np.log1p(y)  # Transform target variable
-    model = RandomForestRegressor(random_state=42)
-    eval_metric = "RMSE"
-elif task == "Classification (Lead Status)":
-    y = encoder.fit_transform(y)  # Encode target
-    model = RandomForestClassifier(random_state=42)
-    eval_metric = "Accuracy"
+        # Log-transform target to handle skewness
+        df[target_variable] = np.log1p(df[target_variable])
 
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        # Split Features and Target
+        X = df.drop(columns=[target_variable])
+        y = df[target_variable]
 
-# Scaling
-scaler = StandardScaler()
-X_train = scaler.fit_transform(X_train)
-X_test = scaler.transform(X_test)
+        # Train-Test Split
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-model.fit(X_train, y_train)
+        # Preprocessing Pipeline
+        numeric_transformer = Pipeline(steps=[
+            ('imputer', SimpleImputer(strategy='mean')),
+            ('scaler', StandardScaler())
+        ])
+        categorical_transformer = Pipeline(steps=[
+            ('imputer', SimpleImputer(strategy='most_frequent')),
+            ('onehot', OneHotEncoder(handle_unknown='ignore'))
+        ])
+        preprocessor = ColumnTransformer(
+            transformers=[
+                ('num', numeric_transformer, numeric_cols),
+                ('cat', categorical_transformer, categorical_cols)
+            ])
 
-# Save models
-pickle.dump(model, open(f"{task.replace(' ', '_')}_model.pkl", "wb"))
-pickle.dump(scaler, open("scaler.pkl", "wb"))
+        # Model Pipeline
+        model = Pipeline(steps=[
+            ('preprocessor', preprocessor),
+            ('regressor', RandomForestRegressor(random_state=42))
+        ])
 
-# Model Evaluation
-if task == "Regression (Selling Price)":
-    y_pred = model.predict(X_test)
-    y_pred = np.expm1(y_pred)  # Reverse log transform
-    rmse = np.sqrt(mean_squared_error(np.expm1(y_test), y_pred))
-    st.write(f"Model Evaluation - {eval_metric}: {rmse:.2f}")
-elif task == "Classification (Lead Status)":
-    y_pred = model.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    st.write(f"Model Evaluation - {eval_metric}: {accuracy:.2f}")
-    st.text(classification_report(y_test, y_pred))
+        # Fit Model
+        model.fit(X_train, y_train)
 
-# Streamlit UI for Prediction
-st.subheader("Make a Prediction")
-user_input = {}
-for col in X.columns:
-    user_input[col] = st.text_input(col, "")
+        # Save Model
+        with open('regression_model.pkl', 'wb') as f:
+            pickle.dump(model, f)
 
-if st.button("Predict"):
-    try:
-        input_df = pd.DataFrame([user_input], dtype=float)
-        input_df = scaler.transform(input_df)  # Scale inputs
-        prediction = model.predict(input_df)
+        st.success("Regression model trained and saved!")
 
-        if task == "Regression (Selling Price)":
-            prediction = np.expm1(prediction)  # Reverse log transform
+    elif task == "Classification" and target_variable == 'Status':
+        # Keep only 'WON' and 'LOST'
+        df = df[df[target_variable].isin(['WON', 'LOST'])]
+
+        # Map target to binary
+        df[target_variable] = df[target_variable].map({'WON': 1, 'LOST': 0})
+
+        # Split Features and Target
+        X = df.drop(columns=[target_variable])
+        y = df[target_variable]
+
+        # Train-Test Split
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+        # Preprocessing Pipeline
+        numeric_transformer = Pipeline(steps=[
+            ('imputer', SimpleImputer(strategy='mean')),
+            ('scaler', StandardScaler())
+        ])
+        categorical_transformer = Pipeline(steps=[
+            ('imputer', SimpleImputer(strategy='most_frequent')),
+            ('onehot', OneHotEncoder(handle_unknown='ignore'))
+        ])
+        preprocessor = ColumnTransformer(
+            transformers=[
+                ('num', numeric_transformer, numeric_cols),
+                ('cat', categorical_transformer, categorical_cols)
+            ])
+
+        # Model Pipeline
+        model = Pipeline(steps=[
+            ('preprocessor', preprocessor),
+            ('classifier', RandomForestClassifier(random_state=42))
+        ])
+
+        # Fit Model
+        model.fit(X_train, y_train)
+
+        # Save Model
+        with open('classification_model.pkl', 'wb') as f:
+            pickle.dump(model, f)
+
+        st.success("Classification model trained and saved!")
+
+    # Prediction
+    st.header("Make Predictions")
+    user_input = {}
+    for col in X.columns:
+        user_input[col] = st.text_input(f"Enter {col}", "")
+
+    if st.button("Predict"):
+        # Prepare Input for Prediction
+        input_df = pd.DataFrame([user_input])
+        input_df = input_df.astype(X.dtypes)
+
+        # Load Model
+        model_file = 'regression_model.pkl' if task == "Regression" else 'classification_model.pkl'
+        with open(model_file, 'rb') as f:
+            loaded_model = pickle.load(f)
+
+        # Predict
+        prediction = loaded_model.predict(input_df)
+
+        # Show Results
+        if task == "Regression":
+            st.success(f"Predicted Selling Price: ${np.expm1(prediction[0]):.2f}")
         else:
-            prediction = encoder.inverse_transform([int(prediction)])
-
-        st.write(f"Prediction: {prediction[0]}")
-    except Exception as e:
-        st.error(f"Error in prediction: {str(e)}")
+            status = "WON" if prediction[0] == 1 else "LOST"
+            st.success(f"Predicted Status: {status}")
