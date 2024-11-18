@@ -31,17 +31,17 @@ if uploaded_file:
 
     if 'selling_price' in df.columns:
         target_variable = 'selling_price'
-    elif 'Status' in df.columns:
-        target_variable = 'Status'
+    elif 'status' in df.columns:
+        target_variable = 'status'
     else:
-        st.error("The dataset must contain either 'Selling_Price' or 'Status' for regression or classification.")
+        st.error("The dataset must contain either 'selling_Price' or 'status' for regression or classification.")
         st.stop()
 
     # Select Task
     task = st.radio("Choose a task", ("Regression", "Classification"))
 
     # Preprocess Data
-    if task == "Regression" and target_variable == 'Selling_Price':
+    if task == "Regression" and target_variable == 'selling_Price':
         # Drop rows with missing target
         df = df.dropna(subset=[target_variable])
 
@@ -85,7 +85,7 @@ if uploaded_file:
 
         st.success("Regression model trained and saved!")
 
-    elif task == "Classification" and target_variable == 'Status':
+    elif task == "Classification" and target_variable == 'status':
         # Keep only 'WON' and 'LOST'
         df = df[df[target_variable].isin(['WON', 'LOST'])]
 
@@ -130,7 +130,7 @@ if uploaded_file:
         st.success("Classification model trained and saved!")
 
     # Ensure X is defined before prediction
-if 'X' in locals() and not X.empty:
+if uploaded_file and 'X' in locals() and not X.empty:
     st.header("Make Predictions")
     user_input = {}
 
@@ -139,8 +139,8 @@ if 'X' in locals() and not X.empty:
         user_input[col] = st.text_input(f"Enter {col}", "")
 
     if st.button("Predict"):
-        # Prepare Input for Prediction
         try:
+            # Prepare Input for Prediction
             input_df = pd.DataFrame([user_input])
             input_df = input_df.astype(X.dtypes)
 
@@ -161,6 +161,7 @@ if 'X' in locals() and not X.empty:
         except Exception as e:
             st.error(f"Prediction failed: {e}")
 else:
-    st.warning("Dataset must be loaded and processed before making predictions.")
+    st.warning("Dataset must be loaded, and model must be trained before making predictions.")
+
 
  
