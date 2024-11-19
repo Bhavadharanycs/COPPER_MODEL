@@ -4,6 +4,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import LabelEncoder
 import pickle
 
 # App Title
@@ -22,6 +23,15 @@ def clean_data(df, target):
     # Handle missing values
     imputer = SimpleImputer(strategy='most_frequent')
     X_cleaned = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
+
+    # Ensure target column is numeric or properly encoded
+    if y.dtype == object or y.dtype == str:
+        y = LabelEncoder().fit_transform(y.astype(str))
+    else:
+        y = pd.to_numeric(y, errors='coerce')
+
+    # Handle NaN in target
+    y = pd.Series(SimpleImputer(strategy="most_frequent").fit_transform(y.values.reshape(-1, 1)).ravel())
 
     return X_cleaned, y
 
@@ -56,10 +66,10 @@ elif menu == "Train Model":
                 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
                 # Determine task based on target type
-                if y.dtype == np.number:
+                if len(np.unique(y)) > 10:  # Assume regression if target has many unique values
                     model = RandomForestRegressor(random_state=42)
                     task = "regression"
-                else:
+                else:  # Classification if target has few unique values
                     model = RandomForestClassifier(random_state=42)
                     task = "classification"
 
