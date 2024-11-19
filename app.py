@@ -3,172 +3,103 @@ import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 import pickle
 
 # App Title
-st.set_page_config(page_title="Copper Industry ML App", layout="wide")
-st.title("📊 Copper Industry ML Model")
-st.markdown("""
-    Welcome to the **Copper Industry ML Application**! 
-    Upload a dataset, train a machine learning model, and make predictions. 
-    Use this app for either regression or classification tasks.
-""")
+st.set_page_config(page_title="Copper ML App", layout="wide")
+st.title("🔧 Copper Industry ML Application")
 
-# Sidebar
-st.sidebar.header("Navigation")
-menu = st.sidebar.radio("Go to", ["Upload Data", "Train Model", "Make Predictions", "About"])
+# Navigation
+menu = st.sidebar.selectbox("Menu", ["Upload Data", "Train Model", "Predict"])
 
-# Global Variables
-uploaded_file = None
-X_train, X_test, y_train, y_test, model, task, numeric_cols, categorical_cols = (None,) * 8
+# Helper Function
+def clean_data(df, target):
+    """Clean data by handling missing values and identifying columns."""
+    X = df.drop(columns=[target])
+    y = df[target]
 
+    # Handle missing values
+    imputer = SimpleImputer(strategy='most_frequent')
+    X_cleaned = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
 
-# Helper Function for Preprocessing
-def preprocess_data(df, target):
-    global numeric_cols, categorical_cols
-    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-    categorical_cols = df.select_dtypes(include=[object]).columns.tolist()
-    if target in numeric_cols:
-        numeric_cols.remove(target)
-    return numeric_cols, categorical_cols
-
+    return X_cleaned, y
 
 # Upload Data
 if menu == "Upload Data":
     st.header("Upload Dataset")
-    uploaded_file = st.file_uploader("Upload Copper Dataset (CSV)", type="csv")
+    uploaded_file = st.file_uploader("Upload CSV", type="csv")
 
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
-        st.success("Dataset uploaded successfully!")
         st.write("### Dataset Preview")
-        st.write(df.head())
-        st.write("### Dataset Info")
-        st.write(df.describe())
+        st.dataframe(df.head())
+
+        # Store dataset in session state for reuse
+        st.session_state["dataset"] = df
+        st.success("Dataset uploaded and saved!")
 
 # Train Model
 elif menu == "Train Model":
-    st.header("Train Model")
-    if uploaded_file:
-        df = pd.read_csv(uploaded_file)
-        target_variable = st.selectbox("Select Target Variable", df.columns)
+    st.header("Train a Model")
 
-        if target_variable:
-            numeric_cols, categorical_cols = preprocess_data(df, target_variable)
-
-            task = st.radio("Select Task", ["Regression", "Classification"])
-            st.write(f"Selected Task: **{task}**")
-
-            if task == "Regression" and df[target_variable].dtype in ['int64', 'float64']:
-                df = df.dropna(subset=[target_variable])
-                X = df.drop(columns=[target_variable])
-                y = df[target_variable]
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-                numeric_transformer = Pipeline(steps=[
-                    ('imputer', SimpleImputer(strategy='mean')),
-                    ('scaler', StandardScaler())
-                ])
-                categorical_transformer = Pipeline(steps=[
-                    ('imputer', SimpleImputer(strategy='most_frequent')),
-                    ('onehot', OneHotEncoder(handle_unknown='ignore'))
-                ])
-                preprocessor = ColumnTransformer(
-                    transformers=[
-                        ('num', numeric_transformer, numeric_cols),
-                        ('cat', categorical_transformer, categorical_cols)
-                    ]
-                )
-                model = Pipeline(steps=[
-                    ('preprocessor', preprocessor),
-                    ('regressor', RandomForestRegressor(random_state=42))
-                ])
-                model.fit(X_train, y_train)
-
-                with open('regression_model.pkl', 'wb') as f:
-                    pickle.dump(model, f)
-
-                st.success("Regression model trained successfully!")
-
-            elif task == "Classification" and len(df[target_variable].unique()) == 2:
-                df = df.dropna(subset=[target_variable])
-                X = df.drop(columns=[target_variable])
-                y = df[target_variable]
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-                numeric_transformer = Pipeline(steps=[
-                    ('imputer', SimpleImputer(strategy='mean')),
-                    ('scaler', StandardScaler())
-                ])
-                categorical_transformer = Pipeline(steps=[
-                    ('imputer', SimpleImputer(strategy='most_frequent')),
-                    ('onehot', OneHotEncoder(handle_unknown='ignore'))
-                ])
-                preprocessor = ColumnTransformer(
-                    transformers=[
-                        ('num', numeric_transformer, numeric_cols),
-                        ('cat', categorical_transformer, categorical_cols)
-                    ]
-                )
-                model = Pipeline(steps=[
-                    ('preprocessor', preprocessor),
-                    ('classifier', RandomForestClassifier(random_state=42))
-                ])
-                model.fit(X_train, y_train)
-
-                with open('classification_model.pkl', 'wb') as f:
-                    pickle.dump(model, f)
-
-                st.success("Classification model trained successfully!")
-
-            else:
-                st.error("Invalid task or target variable type. Please check your dataset.")
-
+    if "dataset" not in st.session_state:
+        st.warning("Please upload a dataset first!")
     else:
-        st.warning("Please upload a dataset first.")
+        df = st.session_state["dataset"]
+        target = st.selectbox("Select Target Variable", df.columns)
 
-# Make Predictions
-elif menu == "Make Predictions":
+        if st.button("Train Model"):
+            try:
+                # Clean data
+                X, y = clean_data(df, target)
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+                # Determine task based on target type
+                if y.dtype == np.number:
+                    model = RandomForestRegressor(random_state=42)
+                    task = "regression"
+                else:
+                    model = RandomForestClassifier(random_state=42)
+                    task = "classification"
+
+                model.fit(X_train, y_train)
+
+                # Save model
+                model_file = f"{task}_model.pkl"
+                with open(model_file, "wb") as f:
+                    pickle.dump(model, f)
+
+                st.success(f"{task.capitalize()} model trained and saved as '{model_file}'!")
+            except Exception as e:
+                st.error(f"Training failed: {e}")
+
+# Predict
+elif menu == "Predict":
     st.header("Make Predictions")
-    if uploaded_file and model:
-        st.write("### Enter Feature Values for Prediction")
 
-        user_input = {}
-        for col in numeric_cols + categorical_cols:
-            user_input[col] = st.text_input(f"{col}", "")
+    model_file = st.text_input("Enter Model Filename (e.g., regression_model.pkl)", "")
+    if model_file and st.button("Load Model"):
+        try:
+            with open(model_file, "rb") as f:
+                model = pickle.load(f)
+            st.success(f"Model '{model_file}' loaded successfully!")
+        except Exception as e:
+            st.error(f"Failed to load model: {e}")
+
+    if model_file and "dataset" in st.session_state:
+        df = st.session_state["dataset"]
+        inputs = {}
+        for col in df.columns:
+            if col != model.target_names[0]:
+                inputs[col] = st.text_input(f"Enter value for {col}")
 
         if st.button("Predict"):
             try:
-                input_df = pd.DataFrame([user_input])
-                input_df = input_df.astype({col: df[col].dtype for col in df.columns if col in input_df})
-                model_file = 'regression_model.pkl' if task == "Regression" else 'classification_model.pkl'
-                with open(model_file, 'rb') as f:
-                    loaded_model = pickle.load(f)
-                prediction = loaded_model.predict(input_df)
-
-                if task == "Regression":
-                    st.success(f"Predicted Value: {prediction[0]:.2f}")
-                else:
-                    result = "Positive Class" if prediction[0] == 1 else "Negative Class"
-                    st.success(f"Predicted Class: {result}")
+                input_df = pd.DataFrame([inputs])
+                prediction = model.predict(input_df)
+                st.success(f"Prediction: {prediction[0]}")
             except Exception as e:
                 st.error(f"Prediction failed: {e}")
     else:
-        st.warning("Please upload data and train a model first.")
-
-# About
-elif menu == "About":
-    st.header("About this App")
-    st.markdown("""
-    - **Developer:** Your Name
-    - **Purpose:** Machine Learning application for the copper industry.
-    - **Features:** 
-      - Upload dataset
-      - Train regression or classification models
-      - Make predictions
-    """)
-
+        st.warning("Please upload a dataset and train a model first!")
