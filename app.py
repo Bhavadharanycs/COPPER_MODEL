@@ -158,5 +158,5 @@ else:
 
         except Exception as e:
             st.error(f"Prediction failed: {e}")
-else:
+   else:
     st.info("Please upload a dataset to proceed.")
