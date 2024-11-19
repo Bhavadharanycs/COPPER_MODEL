@@ -15,7 +15,7 @@ task = st.radio("Select Task", ("Regression", "Classification"))
 @st.cache_data
 def load_data():
     # Simulated data structure (update with real preprocessed schema if available)
-    data = pd.read_csv("Copper_Set.csv")  # Replace with your preprocessed dataset
+    data = pd.read_csv("Copper_Set 1.csv")  # Replace with your preprocessed dataset
     return data
 
 data = load_data()
