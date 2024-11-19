@@ -1,120 +1,151 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.ensemble import ExtraTreesClassifier, ExtraTreesRegressor
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import LabelEncoder
+from sklearn.ensemble import IsolationForest
+from scipy.stats import boxcox
 import pickle
 
-# App Title
-st.set_page_config(page_title="Copper ML App", layout="wide")
-st.title("🔧 Copper Industry ML Application")
+# Set up Streamlit app
+st.set_page_config(page_title="ML Pipeline with Regression & Classification", layout="wide")
+st.title("🚀 Machine Learning Pipeline for Classification & Regression")
 
 # Navigation
-menu = st.sidebar.radio("Navigation", ["Upload Data", "Train Model", "Make Predictions"])
+menu = st.sidebar.radio("Navigation", ["Upload Data", "Data Preprocessing", "EDA", "Train Model", "Make Predictions"])
 
 # Helper Functions
-def clean_data(df, target):
-    """Clean data and ensure target is numeric."""
-    X = df.drop(columns=[target])
-    y = df[target]
+def treat_outliers(df, method="IQR"):
+    """Treat outliers in numeric columns using IQR or Isolation Forest."""
+    if method == "IQR":
+        for col in df.select_dtypes(include=["float", "int"]).columns:
+            Q1 = df[col].quantile(0.25)
+            Q3 = df[col].quantile(0.75)
+            IQR = Q3 - Q1
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            df[col] = np.where(df[col] < lower_bound, lower_bound, df[col])
+            df[col] = np.where(df[col] > upper_bound, upper_bound, df[col])
+    elif method == "IsolationForest":
+        clf = IsolationForest(contamination=0.05, random_state=42)
+        for col in df.select_dtypes(include=["float", "int"]).columns:
+            df[f"{col}_outliers"] = clf.fit_predict(df[[col]])
+            df = df[df[f"{col}_outliers"] == 1].drop(columns=[f"{col}_outliers"])
+    return df
 
-    # Handle missing values in features
-    imputer = SimpleImputer(strategy='most_frequent')
-    X_cleaned = pd.DataFrame(imputer.fit_transform(X), columns=X.columns)
+def preprocess_data(df, target_col):
+    """Preprocess dataset for ML."""
+    # Treat rubbish values in Material_Reference
+    df['Material_Reference'] = df['Material_Reference'].replace(r'^00000.*', np.nan, regex=True)
 
-    # Convert all non-numeric columns to numeric
-    for col in X_cleaned.select_dtypes(include=['object', 'category']).columns:
-        X_cleaned[col] = LabelEncoder().fit_transform(X_cleaned[col])
+    # Impute missing values
+    imputer = SimpleImputer(strategy="most_frequent")
+    df[df.columns] = imputer.fit_transform(df)
 
-    # Ensure target is numeric
-    if y.dtype == object or y.dtype == str:
-        y = LabelEncoder().fit_transform(y)
-    else:
-        y = pd.to_numeric(y, errors='coerce')
+    # Encode categorical variables
+    for col in df.select_dtypes(include=["object", "category"]).columns:
+        df[col] = LabelEncoder().fit_transform(df[col])
 
-    # Handle missing values in the target variable
-    y = pd.Series(SimpleImputer(strategy="most_frequent").fit_transform(y.values.reshape(-1, 1)).ravel())
+    # Handle skewness in continuous variables
+    for col in df.select_dtypes(include=["float", "int"]).columns:
+        if df[col].skew() > 1 or df[col].skew() < -1:
+            df[col] = np.log1p(df[col])  # Log transformation
 
-    return X_cleaned, y
+    # Scale data
+    scaler = StandardScaler()
+    features = df.drop(columns=[target_col])
+    target = df[target_col]
+    features_scaled = pd.DataFrame(scaler.fit_transform(features), columns=features.columns)
 
-# Upload Data
+    return features_scaled, target, scaler
+
+# Upload Data Section
 if menu == "Upload Data":
-    st.header("Upload Dataset")
-    uploaded_file = st.file_uploader("Upload your CSV file", type="csv")
-
+    st.header("📂 Upload Dataset")
+    uploaded_file = st.file_uploader("Upload your dataset (.csv)", type="csv")
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
-        st.write("### Dataset Preview")
-        st.dataframe(df.head())
+        st.session_state["data"] = df
+        st.write("### Dataset Preview", df.head())
 
-        # Save the dataset in session state for reuse
-        st.session_state["dataset"] = df
-        st.success("Dataset uploaded successfully!")
+# Data Preprocessing Section
+elif menu == "Data Preprocessing":
+    st.header("🔄 Data Preprocessing")
+    if "data" not in st.session_state:
+        st.warning("Please upload a dataset first.")
+    else:
+        df = st.session_state["data"]
+        target_col = st.selectbox("Select Target Column", df.columns)
+        method = st.selectbox("Outlier Treatment Method", ["IQR", "IsolationForest"])
 
-# Train Model
+        if st.button("Preprocess Data"):
+            df_cleaned = treat_outliers(df.copy(), method)
+            X, y, scaler = preprocess_data(df_cleaned, target_col)
+            st.session_state["preprocessed_data"] = (X, y, scaler)
+            st.success("Data preprocessing completed.")
+            st.write("### Preprocessed Features", X.head())
+            st.write("### Target Variable", y.head())
+
+# EDA Section
+elif menu == "EDA":
+    st.header("📊 Exploratory Data Analysis")
+    if "data" not in st.session_state:
+        st.warning("Please upload a dataset first.")
+    else:
+        df = st.session_state["data"]
+        st.subheader("Skewness")
+        for col in df.select_dtypes(include=["float", "int"]).columns:
+            fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+            sns.histplot(df[col], kde=True, ax=axes[0]).set_title(f"Original {col}")
+            sns.histplot(np.log1p(df[col]), kde=True, ax=axes[1]).set_title(f"Log-Transformed {col}")
+            st.pyplot(fig)
+
+# Train Model Section
 elif menu == "Train Model":
-    st.header("Train Your Model")
-
-    if "dataset" not in st.session_state:
-        st.warning("Please upload a dataset first!")
+    st.header("🧠 Train a Machine Learning Model")
+    if "preprocessed_data" not in st.session_state:
+        st.warning("Please preprocess your data first.")
     else:
-        df = st.session_state["dataset"]
-        target = st.selectbox("Select Target Variable", df.columns)
+        X, y, scaler = st.session_state["preprocessed_data"]
+        task = st.radio("Select Task", ["Regression", "Classification"])
 
-        if st.button("Train Model"):
-            try:
-                # Data Cleaning
-                X, y = clean_data(df, target)
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        if task == "Regression":
+            model = ExtraTreesRegressor(random_state=42)
+        else:
+            model = ExtraTreesClassifier(random_state=42)
 
-                # Decide task type
-                if len(np.unique(y)) > 10:  # Regression if target has many unique values
-                    model = RandomForestRegressor(random_state=42)
-                    task = "Regression"
-                else:  # Classification if target has few unique values
-                    model = RandomForestClassifier(random_state=42)
-                    task = "Classification"
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        model.fit(X_train, y_train)
 
-                # Train the model
-                model.fit(X_train, y_train)
+        # Save the model and scaler
+        pickle.dump(model, open(f"{task.lower()}_model.pkl", "wb"))
+        pickle.dump(scaler, open("scaler.pkl", "wb"))
+        st.success(f"{task} model trained and saved successfully.")
 
-                # Save the trained model
-                model_file = f"{task.lower()}_model.pkl"
-                with open(model_file, "wb") as f:
-                    pickle.dump(model, f)
-
-                st.success(f"{task} model trained successfully and saved as '{model_file}'!")
-            except Exception as e:
-                st.error(f"Training failed: {e}")
-
-# Make Predictions
+# Make Predictions Section
 elif menu == "Make Predictions":
-    st.header("Make Predictions Using Your Model")
+    st.header("🔮 Make Predictions")
+    model_file = st.file_uploader("Upload Model File (.pkl)", type="pkl")
+    scaler_file = st.file_uploader("Upload Scaler File (.pkl)", type="pkl")
 
-    model_file = st.file_uploader("Upload Your Trained Model (.pkl)", type="pkl")
-    if model_file:
-        try:
-            model = pickle.load(model_file)
-            st.success("Model loaded successfully!")
-        except Exception as e:
-            st.error(f"Failed to load model: {e}")
+    if model_file and scaler_file:
+        model = pickle.load(model_file)
+        scaler = pickle.load(scaler_file)
 
-    if "dataset" in st.session_state:
-        df = st.session_state["dataset"]
-        st.write("### Provide Input for Prediction")
+        st.write("### Input Values")
         inputs = {}
-        for col in df.columns:
-            if col != st.session_state["target"]:  # Skip target column
-                inputs[col] = st.text_input(f"Enter value for {col}")
+        for col in st.session_state["data"].columns:
+            if col != st.session_state["data"].columns[-1]:
+                inputs[col] = st.number_input(f"Enter value for {col}")
 
-        if st.button("Predict"):
-            try:
-                input_df = pd.DataFrame([inputs])
-                prediction = model.predict(input_df)
-                st.success(f"Prediction: {prediction[0]}")
-            except Exception as e:
-                st.error(f"Prediction failed: {e}")
-    else:
-        st.warning("Please upload a dataset and train a model first!")
+        input_df = pd.DataFrame([inputs])
+        input_scaled = scaler.transform(input_df)
+        prediction = model.predict(input_scaled)
+        st.success(f"Prediction: {prediction[0]}")
