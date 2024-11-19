@@ -149,19 +149,19 @@ else:
             # Predict
             prediction = loaded_model.predict(input_df)
 
-  if task == "Regression" and target_variable == 'selling_price':
+   if task == "Regression" and target_variable == 'selling_price':
     # Log-transform the target to reduce skewness (optional)
     df[target_variable] = np.log1p(df[target_variable])
     X = df.drop(columns=[target_variable])
     y = df[target_variable]
 
- elif task == "Classification" and target_variable == 'status':
+   elif task == "Classification" and target_variable == 'status':
     # Filter valid classes and map to binary
     df = df[df[target_variable].isin(['WON', 'LOST'])]
     df[target_variable] = df[target_variable].map({'WON': 1, 'LOST': 0})
     X = df.drop(columns=[target_variable])
     y = df[target_variable]
 
- else:
+   else:
     st.error("Task and target variable mismatch.")
     st.stop()
