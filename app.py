@@ -42,33 +42,38 @@ if uploaded_file:
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     categorical_cols = df.select_dtypes(include=[object]).columns.tolist()
 
-    # Select Target Variable
-    if 'selling_price' in df.columns:
-        target_variable = 'selling_price'
-    elif 'status' in df.columns:
-        target_variable = 'status'
-    else:
-        st.error("Dataset must contain either 'selling_price' or 'status' as the target variable.")
-        st.stop()
+   # Select Target Variable
+if 'selling_price' in df.columns:
+    target_variable = 'selling_price'
+elif 'status' in df.columns:
+    target_variable = 'status'
+else:
+    st.error("Dataset must contain either 'selling_price' or 'status' as the target variable.")
+    st.stop()
 
-    # Choose Task
-    task = st.radio("Choose a task", ("Regression", "Classification"))
+# Drop rows where target variable is NaN
+df = df.dropna(subset=[target_variable])
 
-    if task == "Regression" and target_variable == 'selling_price':
-        df = df.dropna(subset=[target_variable])
-        df[target_variable] = np.log1p(df[target_variable])  # Log-transform to reduce skewness
-        X = df.drop(columns=[target_variable])
-        y = df[target_variable]
+# Choose Task
+task = st.radio("Choose a task", ("Regression", "Classification"))
 
-    elif task == "Classification" and target_variable == 'status':
-        df = df[df[target_variable].isin(['WON', 'LOST'])]
-        df[target_variable] = df[target_variable].map({'WON': 1, 'LOST': 0})
-        X = df.drop(columns=[target_variable])
-        y = df[target_variable]
+if task == "Regression" and target_variable == 'selling_price':
+    # Log-transform the target to reduce skewness (optional, depends on data distribution)
+    df[target_variable] = np.log1p(df[target_variable])
+    X = df.drop(columns=[target_variable])
+    y = df[target_variable]
 
-    else:
-        st.error("Task and target variable mismatch.")
-        st.stop()
+elif task == "Classification" and target_variable == 'status':
+    # Filter valid classes and map to binary
+    df = df[df[target_variable].isin(['WON', 'LOST'])]
+    df[target_variable] = df[target_variable].map({'WON': 1, 'LOST': 0})
+    X = df.drop(columns=[target_variable])
+    y = df[target_variable]
+
+else:
+    st.error("Task and target variable mismatch.")
+    st.stop()
+
 
     # Train-Test Split
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
