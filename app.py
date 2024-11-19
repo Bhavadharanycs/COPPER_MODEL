@@ -47,14 +47,18 @@ elif menu == "Train Model":
         st.write("Dataset Preview:")
         st.dataframe(df.head())
 
-        # Cleaning and Column Identification
+        # Clean and Validate Columns
         if 'Material_Reference' in df.columns:
             df['Material_Reference'] = df['Material_Reference'].replace('00000', np.nan)
 
+        # Detect Numeric and Categorical Columns
         numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         categorical_cols = df.select_dtypes(include=[object]).columns.tolist()
 
-        # Check for Target Variable
+        st.write(f"Numeric Columns Detected: {numeric_cols}")
+        st.write(f"Categorical Columns Detected: {categorical_cols}")
+
+        # Target Variable Validation
         target_variable = None
         if 'selling_price' in df.columns:
             target_variable = 'selling_price'
@@ -64,18 +68,24 @@ elif menu == "Train Model":
             st.error("Dataset must contain either 'selling_price' or 'status'.")
             st.stop()
 
+        # Choose Task
         task = st.radio("Choose a task:", ["Regression", "Classification"], horizontal=True)
 
         if task == "Regression" and target_variable == 'selling_price':
-            # Data Preparation
+            # Preprocess Data for Regression
             df = df.dropna(subset=[target_variable])
             df[target_variable] = np.log1p(df[target_variable])
             X = df.drop(columns=[target_variable])
             y = df[target_variable]
 
+            # Train-Test Split
             X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-            # Preprocessing and Model Pipeline
+            # Ensure Column Consistency
+            numeric_cols = [col for col in numeric_cols if col in X_train.columns]
+            categorical_cols = [col for col in categorical_cols if col in X_train.columns]
+
+            # Preprocessing Pipeline
             numeric_transformer = Pipeline(steps=[
                 ('imputer', SimpleImputer(strategy='mean')),
                 ('scaler', StandardScaler())
@@ -90,6 +100,7 @@ elif menu == "Train Model":
                     ('cat', categorical_transformer, categorical_cols)
                 ])
 
+            # Train Regression Model
             model = Pipeline(steps=[
                 ('preprocessor', preprocessor),
                 ('regressor', RandomForestRegressor(random_state=42))
@@ -101,6 +112,50 @@ elif menu == "Train Model":
                 pickle.dump((model, X.columns), f)
 
             st.success("Regression model trained and saved successfully!")
+
+        elif task == "Classification" and target_variable == 'status':
+            # Preprocess Data for Classification
+            df = df[df[target_variable].isin(['WON', 'LOST'])]
+            df[target_variable] = df[target_variable].map({'WON': 1, 'LOST': 0})
+            X = df.drop(columns=[target_variable])
+            y = df[target_variable]
+
+            # Train-Test Split
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+            # Ensure Column Consistency
+            numeric_cols = [col for col in numeric_cols if col in X_train.columns]
+            categorical_cols = [col for col in categorical_cols if col in X_train.columns]
+
+            # Preprocessing Pipeline
+            numeric_transformer = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='mean')),
+                ('scaler', StandardScaler())
+            ])
+            categorical_transformer = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='most_frequent')),
+                ('onehot', OneHotEncoder(handle_unknown='ignore'))
+            ])
+            preprocessor = ColumnTransformer(
+                transformers=[
+                    ('num', numeric_transformer, numeric_cols),
+                    ('cat', categorical_transformer, categorical_cols)
+                ])
+
+            # Train Classification Model
+            model = Pipeline(steps=[
+                ('preprocessor', preprocessor),
+                ('classifier', RandomForestClassifier(random_state=42))
+            ])
+            model.fit(X_train, y_train)
+
+            # Save Model
+            with open(MODEL_PATH, 'wb') as f:
+                pickle.dump((model, X.columns), f)
+
+            st.success("Classification model trained and saved successfully!")
+
+
 
         elif task == "Classification" and target_variable == 'status':
             # Data Preparation
