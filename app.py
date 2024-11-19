@@ -8,27 +8,33 @@ from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 import pickle
-import os
 
-# Define constants for model file paths
+# Constants
 MODEL_PATH_REGRESSION = "regression_model.pkl"
 MODEL_PATH_CLASSIFICATION = "classification_model.pkl"
 
-# Streamlit App Title
+# Streamlit Title
 st.title("Copper Industry ML Model")
 
 # File Upload
 uploaded_file = st.file_uploader("Upload Copper Dataset (CSV)", type="csv")
 
 if uploaded_file:
-    # Load Dataset
+    # Load and Display Dataset
     df = pd.read_csv(uploaded_file)
     st.write("Dataset Preview:")
     st.write(df.head())
 
-    # Basic Cleaning
+    # Cleaning: Replace invalid entries in 'Material_Reference'
     if 'Material_Reference' in df.columns:
         df['Material_Reference'] = df['Material_Reference'].replace('00000', np.nan)
+
+    # Type Conversion
+    for col in df.columns:
+        try:
+            df[col] = pd.to_numeric(df[col], errors='ignore')  # Convert numeric columns
+        except Exception:
+            pass
 
     # Identify Numeric and Categorical Columns
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
@@ -40,32 +46,26 @@ if uploaded_file:
     elif 'status' in df.columns:
         target_variable = 'status'
     else:
-        st.error("The dataset must contain either 'selling_price' or 'status' for regression or classification.")
+        st.error("Dataset must contain either 'selling_price' or 'status' as the target variable.")
         st.stop()
 
     # Choose Task
     task = st.radio("Choose a task", ("Regression", "Classification"))
 
     if task == "Regression" and target_variable == 'selling_price':
-        # Prepare Data for Regression
         df = df.dropna(subset=[target_variable])
-        df[target_variable] = np.log1p(df[target_variable])  # Log-transform target to handle skewness
-
-        # Split Features and Target
+        df[target_variable] = np.log1p(df[target_variable])  # Log-transform to reduce skewness
         X = df.drop(columns=[target_variable])
         y = df[target_variable]
 
     elif task == "Classification" and target_variable == 'status':
-        # Prepare Data for Classification
         df = df[df[target_variable].isin(['WON', 'LOST'])]
         df[target_variable] = df[target_variable].map({'WON': 1, 'LOST': 0})
-
-        # Split Features and Target
         X = df.drop(columns=[target_variable])
         y = df[target_variable]
 
     else:
-        st.error("Invalid task selected or target variable mismatch.")
+        st.error("Task and target variable mismatch.")
         st.stop()
 
     # Train-Test Split
@@ -76,7 +76,7 @@ if uploaded_file:
     categorical_cols = [col for col in categorical_cols if col in X_train.columns]
 
     if not numeric_cols and not categorical_cols:
-        st.error("No valid features found for preprocessing. Check your dataset.")
+        st.error("No valid features for preprocessing. Check your dataset.")
         st.stop()
 
     # Preprocessing Pipelines
@@ -93,7 +93,7 @@ if uploaded_file:
             ('num', numeric_transformer, numeric_cols),
             ('cat', categorical_transformer, categorical_cols)
         ],
-        remainder='passthrough'  # Keeps untouched columns
+        remainder='passthrough'
     )
 
     # Model Pipeline
@@ -151,6 +151,5 @@ if uploaded_file:
 
         except Exception as e:
             st.error(f"Prediction failed: {e}")
-
 else:
     st.info("Please upload a dataset to proceed.")
