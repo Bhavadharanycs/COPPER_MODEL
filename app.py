@@ -1,88 +1,108 @@
-import streamlit as st
 import pandas as pd
 import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 import pickle
-from sklearn.preprocessing import StandardScaler
+import streamlit as st
 
-# Title and Description
-st.title("Copper Industry ML Predictions")
-st.write("Select a task (Regression or Classification) and input values to predict the outcome.")
+# Load dataset
+df = pd.read_csv("your_dataset.csv")
 
-# Task Selection
-task = st.radio("Select Task", ("Regression", "Classification"))
+# 1. Data Understanding
+categorical_vars = df.select_dtypes(include=['object', 'category']).columns.tolist()
+continuous_vars = df.select_dtypes(include=[np.number]).columns.tolist()
 
-# Load Preprocessed Data for Schema Reference
-@st.cache_data
-def load_data():
-    # Simulated data structure (update with real preprocessed schema if available)
-    data = pd.read_csv("Copper_Set 1.csv")  # Replace with your preprocessed dataset
-    return data
+# Handle rubbish values
+if 'Material_Reference' in df.columns:
+    df['Material_Reference'] = df['Material_Reference'].replace('00000', np.nan)
 
-data = load_data()
+# Drop unnecessary columns
+if 'INDEX' in df.columns:
+    df.drop(columns=['INDEX'], inplace=True)
 
-# Separate Features and Target
-if task == "Regression":
-    target_variable = "Selling_Price"
-    if target_variable not in data.columns:
-        st.error(f"'{target_variable}' column not found in dataset.")
-else:
-    target_variable = "Status"
-    if target_variable not in data.columns:
-        st.error(f"'{target_variable}' column not found in dataset.")
+# 2. Data Preprocessing
+# Fill missing values
+for col in continuous_vars:
+    df[col].fillna(df[col].mean(), inplace=True)
 
-features = [col for col in data.columns if col != target_variable]
+for col in categorical_vars:
+    df[col].fillna(df[col].mode()[0], inplace=True)
 
-# User Input for Feature Values
-st.header("Input Feature Values")
-user_input = {}
+# Treat outliers using Isolation Forest
+iso = IsolationForest(contamination=0.05, random_state=42)
+outliers = iso.fit_predict(df[continuous_vars])
+df = df[outliers == 1]
 
-for feature in features:
-    dtype = data[feature].dtype
-    if np.issubdtype(dtype, np.number):
-        user_input[feature] = st.number_input(f"Enter {feature}", value=float(data[feature].mean()))
-    else:
-        user_input[feature] = st.text_input(f"Enter {feature}", value=str(data[feature].mode()[0]))
+# Treat skewness
+for col in continuous_vars:
+    if abs(df[col].skew()) > 0.5:
+        df[col] = np.log1p(df[col])
 
-# Convert Input to DataFrame
-input_df = pd.DataFrame([user_input])
+# Encode categorical variables
+encoder = OneHotEncoder(sparse=False, drop='first')
+encoded_vars = pd.DataFrame(encoder.fit_transform(df[categorical_vars]), columns=encoder.get_feature_names_out())
+df = pd.concat([df, encoded_vars], axis=1).drop(columns=categorical_vars)
 
-# Feature Engineering and Transformations
-@st.cache_data
-def apply_transformations(input_data, task):
-    # Apply transformations used in model training
-    input_data = input_data.copy()
-    # Scaling for numerical columns
-    scaler = pickle.load(open("scaler.pkl", "rb"))
-    numeric_cols = input_data.select_dtypes(include=[np.number]).columns
-    input_data[numeric_cols] = scaler.transform(input_data[numeric_cols])
+# 3. Feature Engineering
+# Drop highly correlated features
+corr_matrix = df.corr()
+high_corr = [col for col in corr_matrix.columns if any(corr_matrix[col] > 0.9) and col != corr_matrix.columns[0]]
+df.drop(columns=high_corr, inplace=True)
 
-    # Encoding for categorical columns
-    encoder = pickle.load(open("encoder.pkl", "rb"))
-    categorical_cols = input_data.select_dtypes(include=[object]).columns
-    input_data[categorical_cols] = encoder.transform(input_data[categorical_cols])
+# Split data into features and target
+if 'Selling_Price' in df.columns:  # Regression
+    X = df.drop(columns=['Selling_Price'])
+    y = df['Selling_Price']
+else:  # Classification
+    X = df.drop(columns=['Status'])
+    y = df['Status']
 
-    return input_data
+# Scale features
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
 
-try:
-    transformed_input = apply_transformations(input_df, task)
-except Exception as e:
-    st.error(f"Transformation Error: {e}")
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
-# Load Model and Make Prediction
+# Model Training
+if y.dtype == 'float':  # Regression
+    model = RandomForestRegressor(random_state=42)
+else:  # Classification
+    model = RandomForestClassifier(random_state=42)
+
+model.fit(X_train, y_train)
+
+# Save model and preprocessing steps
+pickle.dump(model, open("model.pkl", "wb"))
+pickle.dump(scaler, open("scaler.pkl", "wb"))
+pickle.dump(encoder, open("encoder.pkl", "wb"))
+
+# 4. Streamlit GUI
+st.title("ML Model GUI")
+
+# Task selection
+task = st.selectbox("Select Task", ["Regression", "Classification"])
+
+# Input fields for new data
+st.subheader("Enter Input Features:")
+input_data = {}
+for col in X.columns:
+    input_data[col] = st.text_input(f"Enter {col}:")
+
+# Predict button
 if st.button("Predict"):
-    try:
-        model_file = "regression_model.pkl" if task == "Regression" else "classification_model.pkl"
-        with open(model_file, "rb") as f:
-            model = pickle.load(f)
+    # Convert input to DataFrame
+    input_df = pd.DataFrame([input_data])
+    
+    # Apply feature engineering and scaling
+    input_df = encoder.transform(input_df)
+    input_df = scaler.transform(input_df)
 
-        prediction = model.predict(transformed_input)
-
-        if task == "Regression":
-            # Reverse log transformation if applied
-            st.success(f"Predicted Selling Price: ${np.expm1(prediction[0]):.2f}")
-        else:
-            # Display classification outcome
-            status = "WON" if prediction[0] == 1 else "LOST"
-            st.success(f"Predicted Status: {status}")
-    except Exception as e:
-        st.error(f"Prediction Error: {e}")
+    # Predict
+    model = pickle.load(open("model.pkl", "rb"))
+    prediction = model.predict(input_df)
+    st.write(f"Prediction: {prediction}")
