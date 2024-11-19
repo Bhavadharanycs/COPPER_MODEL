@@ -25,18 +25,20 @@ if uploaded_file:
     st.write("Dataset Preview:")
     st.write(df.head())
 
-    # Cleaning: Replace invalid entries in 'Material_Reference'
+    # Cleaning: Replace invalid entries in 'Material_Reference' if applicable
     if 'Material_Reference' in df.columns:
         df['Material_Reference'] = df['Material_Reference'].replace('00000', np.nan)
 
-    # Type Conversion
+    # Clean and Convert Columns
     for col in df.columns:
-        try:
-            df[col] = pd.to_numeric(df[col], errors='ignore')  # Convert numeric columns
-        except Exception:
-            pass
+        if df[col].dtype == object:
+            # Check for mixed data types
+            try:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            except Exception:
+                pass
 
-    # Identify Numeric and Categorical Columns
+    # Recheck Data Types
     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
     categorical_cols = df.select_dtypes(include=[object]).columns.tolist()
 
