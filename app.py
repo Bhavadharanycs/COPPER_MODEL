@@ -149,14 +149,19 @@ else:
             # Predict
             prediction = loaded_model.predict(input_df)
 
-            # Display Results
-            if task == "Regression":
-                st.success(f"Predicted Selling Price: ${np.expm1(prediction[0]):.2f}")
-            else:
-                status = "WON" if prediction[0] == 1 else "LOST"
-                st.success(f"Predicted Status: {status}")
+  if task == "Regression" and target_variable == 'selling_price':
+    # Log-transform the target to reduce skewness (optional)
+    df[target_variable] = np.log1p(df[target_variable])
+    X = df.drop(columns=[target_variable])
+    y = df[target_variable]
 
-        except Exception as e:
-            st.error(f"Prediction failed: {e}")
-else:
-    st.info("Please upload a dataset to proceed.")
+ elif task == "Classification" and target_variable == 'status':
+    # Filter valid classes and map to binary
+    df = df[df[target_variable].isin(['WON', 'LOST'])]
+    df[target_variable] = df[target_variable].map({'WON': 1, 'LOST': 0})
+    X = df.drop(columns=[target_variable])
+    y = df[target_variable]
+
+ else:
+    st.error("Task and target variable mismatch.")
+    st.stop()
