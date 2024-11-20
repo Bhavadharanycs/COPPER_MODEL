@@ -9,7 +9,7 @@ import pickle
 import streamlit as st
 
 # Load Dataset
-file_path = 'Copper_Set.csv'  # Replace with the correct path to your dataset
+file_path = 'Copper_Set 1.csv'  # Replace with the correct path to your dataset
 data = pd.read_csv(file_path, low_memory=False)
 
 # Data Preprocessing
