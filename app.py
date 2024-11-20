@@ -1,80 +1,129 @@
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.ensemble import IsolationForest
 import pickle
 import streamlit as st
 
-# Load dataset
-df = pd.read_csv("Copper_Set 1.csv")
+# Load Dataset
+file_path = 'Copper_Set.csv'  # Replace with the correct path to your dataset
+data = pd.read_csv(file_path, low_memory=False)
 
-# Data Understanding & Cleaning
-categorical_vars = df.select_dtypes(include=['object', 'category']).columns.tolist()
-continuous_vars = df.select_dtypes(include=[np.number]).columns.tolist()
+# Data Preprocessing
+# Identify numeric and non-numeric columns
+numeric_cols = data.select_dtypes(include=['number']).columns
+non_numeric_cols = data.select_dtypes(exclude=['number']).columns
 
-# Handle rubbish values
-if 'Material_Reference' in df.columns:
-    df['Material_Reference'] = df['Material_Reference'].replace('00000', np.nan)
+# Impute numeric columns with mean
+valid_numeric_cols = [col for col in numeric_cols if data[col].notna().sum() > 0]
+imputer = SimpleImputer(strategy='mean')
+data[valid_numeric_cols] = imputer.fit_transform(data[valid_numeric_cols])
 
-# Drop unnecessary columns
-if 'INDEX' in df.columns:
-    df.drop(columns=['INDEX'], inplace=True)
+# Impute non-numeric columns with mode
+for col in non_numeric_cols:
+    if data[col].notna().sum() > 0:  # Skip columns with all missing values
+        data[col].fillna(data[col].mode()[0], inplace=True)
 
-# Fill missing values quickly
-df[continuous_vars] = df[continuous_vars].fillna(df[continuous_vars].mean())
-df[categorical_vars] = df[categorical_vars].fillna(df[categorical_vars].mode().iloc[0])
+# Drop columns that are entirely missing or incompatible with ML
+data = data.dropna(axis=1, how='all')
 
-# Encode categorical variables (label encoding for simplicity)
+# Handle Skewness in 'Selling_Price' using log transformation
+if 'Selling_Price' in data.columns:
+    data['Selling_Price'] = np.log1p(data['Selling_Price'])
+
+# Treat outliers using Isolation Forest
+iso = IsolationForest(contamination=0.05, random_state=42)
+outliers = iso.fit_predict(data.select_dtypes(include=['number']))
+data = data[outliers == 1]
+
+# Initialize placeholders for regression and classification tasks
+X_reg, y_reg, X_cls, y_cls = None, None, None, None
+
+# Separate Regression and Classification Tasks
+if 'Selling_Price' in data.columns:
+    X_reg = data.drop(columns=['Selling_Price', 'Status'], errors='ignore')
+    y_reg = data['Selling_Price']
+
+if 'Status' in data.columns:
+    X_cls = data.drop(columns=['Status', 'Selling_Price'], errors='ignore')
+    y_cls = data['Status']
+
+# Encode categorical variables
 encoder = LabelEncoder()
-for col in categorical_vars:
-    df[col] = encoder.fit_transform(df[col])
+if y_cls is not None:
+    y_cls = encoder.fit_transform(y_cls)
 
-# Split data into features and target
-if 'Selling_Price' in df.columns:  # Regression
-    target_col = 'Selling_Price'
-    model = RandomForestRegressor(random_state=42, n_estimators=50)  # Reduce estimators for faster training
-else:  # Classification
-    target_col = 'Status'
-    model = RandomForestClassifier(random_state=42, n_estimators=50)
+# Train-Test Split
+X_reg_train, X_reg_test, y_reg_train, y_reg_test = None, None, None, None
+X_cls_train, X_cls_test, y_cls_train, y_cls_test = None, None, None, None
 
-X = df.drop(columns=[target_col])
-y = df[target_col]
+if X_reg is not None and y_reg is not None:
+    X_reg_train, X_reg_test, y_reg_train, y_reg_test = train_test_split(
+        X_reg, y_reg, test_size=0.2, random_state=42
+    )
 
-# Scale features
+if X_cls is not None and y_cls is not None:
+    X_cls_train, X_cls_test, y_cls_train, y_cls_test = train_test_split(
+        X_cls, y_cls, test_size=0.2, random_state=42
+    )
+
+# Scaling
 scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
+X_reg_train_scaled, X_reg_test_scaled = None, None
+if X_reg_train is not None:
+    X_reg_train_scaled = scaler.fit_transform(X_reg_train)
+    X_reg_test_scaled = scaler.transform(X_reg_test)
 
-# Train-test split
-X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+# Train Models
+regressor, classifier = None, None
+if X_reg_train_scaled is not None and y_reg_train is not None:
+    regressor = RandomForestRegressor(random_state=42)
+    regressor.fit(X_reg_train_scaled, y_reg_train)
 
-# Train the model
-model.fit(X_train, y_train)
+if X_cls_train is not None and y_cls_train is not None:
+    classifier = RandomForestClassifier(random_state=42)
+    classifier.fit(X_cls_train, y_cls_train)
 
-# Save model and preprocessing steps
-pickle.dump(model, open("model.pkl", "wb"))
-pickle.dump(scaler, open("scaler.pkl", "wb"))
+# Save Models and Preprocessing Objects
+if regressor is not None:
+    pickle.dump(regressor, open('regressor.pkl', 'wb'))
+if classifier is not None:
+    pickle.dump(classifier, open('classifier.pkl', 'wb'))
+pickle.dump(scaler, open('scaler.pkl', 'wb'))
 
-# Streamlit GUI
-st.title("Optimized ML Model GUI")
+# Streamlit App
+st.title("Copper Industry ML Application")
+task = st.selectbox("Select Task", ["Regression (Selling Price)", "Classification (Status)"])
 
-# Task selection
-task = st.selectbox("Select Task", ["Regression", "Classification"])
+if task == "Regression (Selling Price)":
+    if X_reg is None or regressor is None:
+        st.error("Regression model is not available due to missing 'Selling_Price' data.")
+    else:
+        st.header("Predict Selling Price")
+        input_data = []
+        for col in X_reg.columns:
+            value = st.number_input(f"Enter {col}", value=0.0)
+            input_data.append(value)
+        input_data = np.array(input_data).reshape(1, -1)
+        input_data_scaled = scaler.transform(input_data)
+        regressor = pickle.load(open('regressor.pkl', 'rb'))
+        pred = regressor.predict(input_data_scaled)
+        st.write(f"Predicted Selling Price: {np.expm1(pred[0]):.2f} (Original Scale)")
 
-# Input fields for new data
-st.subheader("Enter Input Features:")
-input_data = []
-for col in X.columns:
-    value = st.text_input(f"Enter value for {col}:")
-    input_data.append(float(value) if value else 0.0)  # Default to 0.0 if no input
-
-# Predict button
-if st.button("Predict"):
-    # Convert input to scaled format
-    input_df = np.array(input_data).reshape(1, -1)
-    input_scaled = scaler.transform(input_df)
-
-    # Predict
-    model = pickle.load(open("model.pkl", "rb"))
-    prediction = model.predict(input_scaled)
-    st.write(f"Prediction: {prediction[0]}")
+elif task == "Classification (Status)":
+    if X_cls is None or classifier is None:
+        st.error("Classification model is not available due to missing 'Status' data.")
+    else:
+        st.header("Predict Status (Won/Lost)")
+        input_data = []
+        for col in X_cls.columns:
+            value = st.number_input(f"Enter {col}", value=0.0)
+            input_data.append(value)
+        input_data = np.array(input_data).reshape(1, -1)
+        classifier = pickle.load(open('classifier.pkl', 'rb'))
+        pred = classifier.predict(input_data)
+        status = 'WON' if pred[0] == 1 else 'LOST'
+        st.write(f"Predicted Status: {status}")
