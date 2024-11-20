@@ -12,16 +12,6 @@ import streamlit as st
 file_path = 'Copper_Set 1.csv'  # Replace with the correct path to your dataset
 data = pd.read_csv(file_path, low_memory=False)
 
-# Debug: Check dataset structure
-st.write("Dataset Preview:", data.head())
-st.write("Columns in Dataset:", data.columns)
-
-# Check if 'Selling_Price' exists
-if 'Selling_Price' not in data.columns:
-    st.error("'Selling_Price' column is missing. Please verify the dataset.")
-else:
-    st.write("'Selling_Price' column is present.")
-
 # Data Preprocessing
 # Identify numeric and non-numeric columns
 numeric_cols = data.select_dtypes(include=['number']).columns
@@ -41,8 +31,8 @@ for col in non_numeric_cols:
 data = data.dropna(axis=1, how='all')
 
 # Handle Skewness in 'Selling_Price' using log transformation
-if 'Selling_Price' in data.columns:
-    data['Selling_Price'] = np.log1p(data['Selling_Price'])
+if 'selling_price' in data.columns:
+    data['selling_price'] = np.log1p(data['selling_price'])
 
 # Treat outliers using Isolation Forest
 iso = IsolationForest(contamination=0.05, random_state=42)
@@ -53,13 +43,13 @@ data = data[outliers == 1]
 X_reg, y_reg, X_cls, y_cls = None, None, None, None
 
 # Separate Regression and Classification Tasks
-if 'Selling_Price' in data.columns:
-    X_reg = data.drop(columns=['Selling_Price', 'Status'], errors='ignore')
-    y_reg = data['Selling_Price']
+if 'selling_Price' in data.columns:
+    X_reg = data.drop(columns=['selling_Price', 'status'], errors='ignore')
+    y_reg = data['selling_Price']
 
-if 'Status' in data.columns:
-    X_cls = data.drop(columns=['Status', 'Selling_Price'], errors='ignore')
-    y_cls = data['Status']
+if 'status' in data.columns:
+    X_cls = data.drop(columns=['status', 'selling_price'], errors='ignore')
+    y_cls = data['status']
 
 # Encode categorical variables
 encoder = LabelEncoder()
@@ -106,11 +96,11 @@ pickle.dump(scaler, open('scaler.pkl', 'wb'))
 
 # Streamlit App
 st.title("Copper Industry ML Application")
-task = st.selectbox("Select Task", ["Regression (Selling Price)", "Classification (Status)"])
+task = st.selectbox("Select Task", ["Regression (selling price)", "Classification (status)"])
 
-if task == "Regression (Selling Price)":
+if task == "Regression (selling price)":
     if X_reg is None or regressor is None:
-        st.error("Regression model is not available due to missing 'Selling_Price' data.")
+        st.error("Regression model is not available due to missing 'selling_price' data.")
     else:
         st.header("Predict Selling Price")
         input_data = []
@@ -123,9 +113,9 @@ if task == "Regression (Selling Price)":
         pred = regressor.predict(input_data_scaled)
         st.write(f"Predicted Selling Price: {np.expm1(pred[0]):.2f} (Original Scale)")
 
-elif task == "Classification (Status)":
+elif task == "Classification (status)":
     if X_cls is None or classifier is None:
-        st.error("Classification model is not available due to missing 'Status' data.")
+        st.error("Classification model is not available due to missing 'status' data.")
     else:
         st.header("Predict Status (Won/Lost)")
         input_data = []
