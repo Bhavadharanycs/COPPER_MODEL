@@ -12,6 +12,16 @@ import streamlit as st
 file_path = 'Copper_Set 1.csv'  # Replace with the correct path to your dataset
 data = pd.read_csv(file_path, low_memory=False)
 
+# Debug: Check dataset structure
+st.write("Dataset Preview:", data.head())
+st.write("Columns in Dataset:", data.columns)
+
+# Check if 'Selling_Price' exists
+if 'Selling_Price' not in data.columns:
+    st.error("'Selling_Price' column is missing. Please verify the dataset.")
+else:
+    st.write("'Selling_Price' column is present.")
+
 # Data Preprocessing
 # Identify numeric and non-numeric columns
 numeric_cols = data.select_dtypes(include=['number']).columns
